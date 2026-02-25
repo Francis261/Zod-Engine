@@ -15,7 +15,7 @@ import {
   writeStructureMarkdown,
   generateStructureMarkdown,
   applyOperations,
-  getTopFilesForContext
+  selectRelevantProjectFiles
 } from '@/lib/projectStore';
 import { parseTaggedOperations, parseUserTagCommands } from '@/lib/operationTags';
 
@@ -61,7 +61,12 @@ export async function POST(request) {
 
     const projectState = await readProjectFiles();
     const structureMarkdown = await readStructureMarkdown();
-    const fileContext = getTopFilesForContext(projectState.files, 8, 2600);
+    const fileSelection = selectRelevantProjectFiles(projectState.files, query, {
+      maxFiles: 3,
+      maxChars: 900,
+      maxPerFile: 260
+    });
+    const fileContext = fileSelection.files;
     const recentHistory = (projectState.history || []).slice(-6).map((h) => `${h.when}: ${h.query}`);
 
     const prompt = buildPrompt(query, contextNodes, {
@@ -115,6 +120,11 @@ export async function POST(request) {
         path,
         contentPreview: String(content).slice(0, 600)
       })),
+      contextManifest: {
+        projectFiles: fileSelection.manifest,
+        structureChars: String(structureMarkdown || "").slice(0, 1000).length,
+        recentHistoryCount: recentHistory.length
+      },
       orchestration: {
         totalNodesInMemory: updatedNodes.length,
         selectedNodeCount: selectedUpdated.length,

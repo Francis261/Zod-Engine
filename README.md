@@ -6,15 +6,16 @@ A lightweight Next.js 14 App Router project implementing an **AI Brain** for lar
 
 - Keeps **brain memory tags** in `data/nodes.json`.
 - Keeps **project files** in `data/projectFiles.json` and live `data/structure.md`.
-- Uses retrieval + dependency expansion + prompt budgeting so only small, relevant context is sent to AI.
+- Uses retrieval + dependency expansion + strict prompt budgeting so only a tiny, relevance-ranked subset of context is sent to AI (never full codebase).
 - Supports **user-side tags/operations** (`read`, `write`, `rename`, `delete`, `copy`, `move`, `think`) via Studio inputs.
 - Parses AI tagged actions and applies file operations in brain memory.
+- Emits a context manifest so you can verify exactly which files/chars were sent to AI each turn.
 
 ## API routes
 
 - `POST /api/query`
   - Accepts: `query`, `provider`, `model`, `userTags[]`
-  - Retrieves relevant nodes + project context
+  - Retrieves relevant nodes + relevance-ranked file subset (hard char/file caps)
   - Builds bounded prompt using `brain_summary`, `brain_read`, `brain_write`
   - Calls `/api/ai-call`
   - Parses AI/user operation tags and updates project memory

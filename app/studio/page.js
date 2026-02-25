@@ -23,6 +23,7 @@ export default function StudioPage() {
   const [operations, setOperations] = useState([]);
   const [projectFiles, setProjectFiles] = useState([]);
   const [structureMarkdown, setStructureMarkdown] = useState('');
+  const [contextManifest, setContextManifest] = useState(null);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -59,6 +60,7 @@ export default function StudioPage() {
         if (res.ok) {
           setProjectFiles(data.files || []);
           setStructureMarkdown(data.structureMarkdown || '');
+      setContextManifest(data.contextManifest || null);
         }
       } catch {
         // Silent optional load.
@@ -106,6 +108,7 @@ export default function StudioPage() {
       setOperations(data.operations || []);
       setProjectFiles(data.projectFiles || []);
       setStructureMarkdown(data.structureMarkdown || '');
+      setContextManifest(data.contextManifest || null);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -228,6 +231,20 @@ export default function StudioPage() {
             <li>Model: {orchestration.model || 'n/a'}</li>
             <li>Operations applied: {orchestration.operationCount || 0}</li>
           </ul>
+        )}
+      </section>
+
+      <section style={{ marginTop: 18, background: '#fff', border: '1px solid #dce3f0', borderRadius: 12, padding: 16 }}>
+        <h2 style={{ marginTop: 0 }}>Context Sent to AI</h2>
+        {!contextManifest ? (
+          <p style={{ margin: 0 }}>No run yet.</p>
+        ) : (
+          <>
+            <p style={{ marginTop: 0 }}>
+              The brain sends only a small subset of files, not the full codebase.
+            </p>
+            <pre style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{JSON.stringify(contextManifest, null, 2)}</pre>
+          </>
         )}
       </section>
 
