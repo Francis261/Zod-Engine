@@ -9,7 +9,7 @@ import {
   applyBrainWriteback
 } from '@/lib/nodeStore';
 
-async function callAIViaProxyRoute(request, prompt, provider) {
+async function callAIViaProxyRoute(request, prompt, provider, model) {
   const proto = request.headers.get('x-forwarded-proto') || 'http';
   const host = request.headers.get('host') || 'localhost:3000';
   const url = `${proto}://${host}/api/ai-call`;
@@ -17,7 +17,7 @@ async function callAIViaProxyRoute(request, prompt, provider) {
   const response = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ prompt, provider })
+    body: JSON.stringify({ prompt, provider, model })
   });
 
   const payload = await response.json();
@@ -30,7 +30,7 @@ async function callAIViaProxyRoute(request, prompt, provider) {
 
 export async function POST(request) {
   try {
-    const { query, provider } = await request.json();
+    const { query, provider, model } = await request.json();
 
     if (!query || typeof query !== 'string') {
       return NextResponse.json({ error: 'query must be a non-empty string' }, { status: 400 });
@@ -62,7 +62,7 @@ export async function POST(request) {
     });
 
     // Query route calls the AI proxy route (not provider SDK directly).
-    const ai = await callAIViaProxyRoute(request, prompt, provider);
+    const ai = await callAIViaProxyRoute(request, prompt, provider, model);
 
     const updatedNodes = applyBrainWriteback(
       nodes,
@@ -83,7 +83,9 @@ export async function POST(request) {
         totalNodesInMemory: updatedNodes.length,
         selectedNodeCount: selectedUpdated.length,
         promptSizeChars: prompt.length,
-        usedChunking: selectedUpdated.some((node) => (node.code_snippet || '').length > 700)
+        usedChunking: selectedUpdated.some((node) => (node.code_snippet || '').length > 700),
+        provider: ai.provider || provider || 'stub',
+        model: ai.model || model || null
       },
       selectedNodes: selectedUpdated.map((node) => ({
         id: node.id,

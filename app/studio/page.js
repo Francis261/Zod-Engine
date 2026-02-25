@@ -1,12 +1,18 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+
+const GEMINI_FALLBACK_MODELS = ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.0-flash'];
 
 export default function StudioPage() {
   const defaultProvider = process.env.NEXT_PUBLIC_DEFAULT_AI_PROVIDER || 'stub';
+  const defaultGeminiModel = process.env.NEXT_PUBLIC_DEFAULT_GEMINI_MODEL || 'gemini-2.5-flash';
 
   const [query, setQuery] = useState('Start a new project module for todo auth and scaffold initial code.');
   const [provider, setProvider] = useState(defaultProvider);
+  const [model, setModel] = useState(defaultGeminiModel);
+  const [availableModels, setAvailableModels] = useState(GEMINI_FALLBACK_MODELS);
+  const [modelsLoading, setModelsLoading] = useState(false);
   const [response, setResponse] = useState('');
   const [selectedNodes, setSelectedNodes] = useState([]);
   const [orchestration, setOrchestration] = useState(null);
@@ -14,6 +20,30 @@ export default function StudioPage() {
   const [error, setError] = useState('');
 
   const canSend = useMemo(() => Boolean(query.trim()), [query]);
+
+  useEffect(() => {
+    async function loadGeminiModels() {
+      if (provider !== 'gemini') return;
+
+      setModelsLoading(true);
+      try {
+        const res = await fetch('/api/ai-call?provider=gemini&listModels=1');
+        const data = await res.json();
+        if (res.ok && Array.isArray(data.models) && data.models.length) {
+          setAvailableModels(data.models);
+          if (!data.models.includes(model) && data.models[0] && data.models[0] !== model) {
+            setModel(data.models[0]);
+          }
+        }
+      } catch {
+        // Keep fallback model list on network/provider failure.
+      } finally {
+        setModelsLoading(false);
+      }
+    }
+
+    loadGeminiModels();
+  }, [provider, model]);
 
   async function handleSend() {
     setLoading(true);
@@ -23,7 +53,7 @@ export default function StudioPage() {
       const res = await fetch('/api/query', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query, provider })
+        body: JSON.stringify({ query, provider, model: provider === 'gemini' ? model : undefined })
       });
 
       const data = await res.json();
@@ -60,8 +90,28 @@ export default function StudioPage() {
           style={{ marginBottom: 12, borderRadius: 8, border: '1px solid #c7d2e8', padding: 8 }}
         >
           <option value="stub">stub (local)</option>
-          <option value="gemini">gemini (requires GEMINI_API_KEY)</option>
+          <option value="gemini">gemini</option>
         </select>
+
+        {provider === 'gemini' && (
+          <>
+            <label htmlFor="model" style={{ display: 'block', fontWeight: 600, marginBottom: 8 }}>
+              Gemini Model {modelsLoading ? '(loading...)' : ''}
+            </label>
+            <select
+              id="model"
+              value={model}
+              onChange={(e) => setModel(e.target.value)}
+              style={{ marginBottom: 12, borderRadius: 8, border: '1px solid #c7d2e8', padding: 8 }}
+            >
+              {availableModels.map((item) => (
+                <option key={item} value={item}>
+                  {item}
+                </option>
+              ))}
+            </select>
+          </>
+        )}
 
         <label htmlFor="query" style={{ display: 'block', fontWeight: 600, marginBottom: 8 }}>
           Query
@@ -106,6 +156,8 @@ export default function StudioPage() {
             <li>Selected nodes: {orchestration.selectedNodeCount}</li>
             <li>Prompt chars: {orchestration.promptSizeChars}</li>
             <li>Chunking used: {String(orchestration.usedChunking)}</li>
+            <li>Provider: {orchestration.provider || 'n/a'}</li>
+            <li>Model: {orchestration.model || 'n/a'}</li>
           </ul>
         )}
       </section>

@@ -9,7 +9,8 @@ The brain does **not** send the whole codebase to the AI provider. It stores cod
 - Next.js 14 App Router scaffold.
 - API routes:
   - `POST /api/query` - orchestrates retrieval, prompt building, AI proxy call, and memory write-back.
-  - `POST /api/ai-call` - external AI proxy endpoint (stub + optional Gemini call).
+  - `POST /api/ai-call` - external AI proxy endpoint (stub + optional Gemini call), supports model override.
+  - `GET /api/ai-call?provider=gemini&listModels=1` - lists available Gemini generateContent models.
   - `GET /api/node/list` - list all nodes.
   - `GET /api/node/fetch?id=<nodeId>` - fetch one node.
   - `POST /api/node/update` - partial node updates.
@@ -33,7 +34,8 @@ Open `http://localhost:3000/studio`.
 Create `.env.local` from `.env.example`:
 
 - `GEMINI_API_KEY` - optional API key for Gemini proxy mode.
-- `GEMINI_MODEL` - optional model name (default: `gemini-1.5-flash`).
+- `GEMINI_MODEL` - optional backend default model (default: `gemini-2.5-flash`).
+- `NEXT_PUBLIC_DEFAULT_GEMINI_MODEL` - default Studio model value.
 - `NEXT_PUBLIC_DEFAULT_AI_PROVIDER` - `stub` or `gemini`.
 
 ## Brain orchestration flow
@@ -43,7 +45,7 @@ Create `.env.local` from `.env.example`:
 3. If project memory is empty or no context matches, brain creates placeholder node(s) from intent.
 4. Brain selects relevant nodes and expands with dependencies.
 5. Brain chunks code snippets and builds a bounded prompt (context budget).
-6. Brain calls `/api/ai-call` (which then calls stub or Gemini).
+6. Brain calls `/api/ai-call` (which then calls stub or Gemini with selected model).
 7. Brain updates selected nodes (`brain_write`, `brain_history`) and persists memory.
 8. Response + orchestration metadata is returned to Studio.
 
