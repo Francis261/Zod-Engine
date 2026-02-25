@@ -1,17 +1,20 @@
 {
-  "name": "zod-engine",
-  "version": "1.0.0",
+  "name": "ai-brain-studio",
+  "version": "0.1.0",
   "private": true,
-  "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview"
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
   },
   "dependencies": {
-    "phaser": "^3.90.0"
+    "next": "14.2.5",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
   },
   "devDependencies": {
-    "vite": "^5.4.11"
+    "eslint": "8.57.0",
+    "eslint-config-next": "14.2.5"
   }
 }

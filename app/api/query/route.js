@@ -1,0 +1,102 @@
+import { NextResponse } from 'next/server';
+import {
+  readNodes,
+  writeNodes,
+  inferNodeFromQuery,
+  selectRelevantNodes,
+  expandWithDependencies,
+  buildPrompt,
+  applyBrainWriteback
+} from '@/lib/nodeStore';
+
+async function callAIViaProxyRoute(request, prompt, provider) {
+  const proto = request.headers.get('x-forwarded-proto') || 'http';
+  const host = request.headers.get('host') || 'localhost:3000';
+  const url = `${proto}://${host}/api/ai-call`;
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ prompt, provider })
+  });
+
+  const payload = await response.json();
+  if (!response.ok) {
+    throw new Error(payload.error || 'AI proxy call failed');
+  }
+
+  return payload;
+}
+
+export async function POST(request) {
+  try {
+    const { query, provider } = await request.json();
+
+    if (!query || typeof query !== 'string') {
+      return NextResponse.json({ error: 'query must be a non-empty string' }, { status: 400 });
+    }
+
+    let nodes = await readNodes();
+
+    // New-project bootstrap: if memory is empty, seed one placeholder node from query intent.
+    if (!nodes.length) {
+      nodes = [inferNodeFromQuery(query)];
+      await writeNodes(nodes);
+    }
+
+    let selectedNodes = selectRelevantNodes(nodes, query);
+
+    // If query does not match existing nodes strongly, create a placeholder node on-the-fly.
+    if (!selectedNodes.length) {
+      const placeholder = inferNodeFromQuery(query);
+      nodes = [...nodes, placeholder];
+      selectedNodes = [placeholder];
+      await writeNodes(nodes);
+    }
+
+    // Add dependency-aware context while keeping prompt bounded.
+    const contextNodes = expandWithDependencies(nodes, selectedNodes, 6);
+    const prompt = buildPrompt(query, contextNodes, {
+      maxContextChars: 6000,
+      chunkSize: 700
+    });
+
+    // Query route calls the AI proxy route (not provider SDK directly).
+    const ai = await callAIViaProxyRoute(request, prompt, provider);
+
+    const updatedNodes = applyBrainWriteback(
+      nodes,
+      contextNodes.map((node) => node.id),
+      query,
+      ai.output
+    );
+
+    await writeNodes(updatedNodes);
+
+    // Return updated view for selected/context nodes.
+    const byId = new Map(updatedNodes.map((node) => [node.id, node]));
+    const selectedUpdated = contextNodes.map((node) => byId.get(node.id) || node);
+
+    return NextResponse.json({
+      response: ai.output,
+      orchestration: {
+        totalNodesInMemory: updatedNodes.length,
+        selectedNodeCount: selectedUpdated.length,
+        promptSizeChars: prompt.length,
+        usedChunking: selectedUpdated.some((node) => (node.code_snippet || '').length > 700)
+      },
+      selectedNodes: selectedUpdated.map((node) => ({
+        id: node.id,
+        name: node.name,
+        type: node.type,
+        summary: node.tags.brain_summary,
+        brain_dependencies: node.tags.brain_dependencies,
+        brain_read: node.tags.brain_read,
+        brain_write: node.tags.brain_write,
+        brain_history: node.tags.brain_history
+      }))
+    });
+  } catch (error) {
+    return NextResponse.json({ error: error.message || 'Query pipeline failed' }, { status: 500 });
+  }
+}

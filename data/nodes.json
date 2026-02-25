@@ -1,0 +1,120 @@
+[
+  {
+    "id": "node-query-orchestrator",
+    "type": "module",
+    "name": "query-orchestrator",
+    "code_snippet": "POST /api/query -> select nodes -> build prompt -> call /api/ai-call -> update brain tags",
+    "tags": {
+      "brain_summary": "Coordinates the core query pipeline and merges node context into one prompt.",
+      "brain_behavior": "Validates query payload, picks node context, and records writes/history.",
+      "brain_constraints": "Must not embed provider-specific AI logic directly.",
+      "brain_examples": [
+        "How does query route assemble context?",
+        "Which nodes are touched by this user request?"
+      ],
+      "brain_usage": [
+        "POST /api/query"
+      ],
+      "brain_dependencies": [
+        "node-store",
+        "ai-proxy"
+      ],
+      "brain_callers": [
+        "studio-page"
+      ],
+      "brain_called": [
+        "ai-call-route",
+        "node-store"
+      ],
+      "brain_history": [],
+      "brain_read": [
+        "brain_summary",
+        "brain_context",
+        "brain_dependencies"
+      ],
+      "brain_write": [],
+      "brain_priority": "high",
+      "brain_context": "Primary entrypoint that reasons over graph-like code nodes."
+    }
+  },
+  {
+    "id": "node-store",
+    "type": "module",
+    "name": "node-memory-store",
+    "code_snippet": "readNodes/writeNodes/selectRelevantNodes/buildPrompt helpers around data/nodes.json",
+    "tags": {
+      "brain_summary": "Provides JSON-backed node memory persistence and simple node ranking.",
+      "brain_behavior": "Reads and writes node data from nodes.json and formats prompt context.",
+      "brain_constraints": "JSON persistence only for v0; not optimized for high concurrency.",
+      "brain_examples": [
+        "Rank nodes by keyword overlap.",
+        "Serialize prompt sections from tags."
+      ],
+      "brain_usage": [
+        "api/query",
+        "api/node/list",
+        "api/node/update",
+        "api/node/fetch"
+      ],
+      "brain_dependencies": [
+        "data/nodes.json",
+        "fs"
+      ],
+      "brain_callers": [
+        "query-route",
+        "node-routes"
+      ],
+      "brain_called": [
+        "fs.readFile",
+        "fs.writeFile"
+      ],
+      "brain_history": [],
+      "brain_read": [
+        "name",
+        "code_snippet",
+        "brain_summary",
+        "brain_usage"
+      ],
+      "brain_write": [],
+      "brain_priority": "high",
+      "brain_context": "Acts as memory adapter until a database-backed graph is introduced."
+    }
+  },
+  {
+    "id": "node-ai-proxy",
+    "type": "function",
+    "name": "callExternalAI",
+    "code_snippet": "Receives prompt and returns stubbed output. Replace with Gemini/OpenAI call later.",
+    "tags": {
+      "brain_summary": "Proxy boundary for external AI providers with no core brain logic.",
+      "brain_behavior": "Accepts raw prompt, performs remote call (or stub), and returns output.",
+      "brain_constraints": "Should remain provider-agnostic and not mutate node memory.",
+      "brain_examples": [
+        "POST /api/ai-call with prompt",
+        "Stub response for local development"
+      ],
+      "brain_usage": [
+        "api/ai-call",
+        "api/query"
+      ],
+      "brain_dependencies": [
+        "future-provider-sdk"
+      ],
+      "brain_callers": [
+        "query-route",
+        "ai-call-route"
+      ],
+      "brain_called": [
+        "external-ai-api"
+      ],
+      "brain_history": [],
+      "brain_read": [
+        "prompt",
+        "provider configuration"
+      ],
+      "brain_write": [],
+      "brain_priority": "medium",
+      "brain_context": "Decouples orchestration from provider integration details."
+    }
+  }
+]
