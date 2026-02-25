@@ -19,23 +19,23 @@ export default function StudioPage() {
 
   const canSend = useMemo(() => Boolean(query.trim()), [query]);
 
-  useEffect(() => {
-    async function loadProjectFiles() {
-      setProjectLoading(true);
-      try {
-        const res = await fetch('/api/project/files');
-        const data = await res.json();
-        if (res.ok) {
-          setProjectFiles(data.files || []);
-          setStructureMarkdown(data.structureMarkdown || '');
-        }
-      } catch {
-        // This panel is optional for v0 and should not block query flow.
-      } finally {
-        setProjectLoading(false);
+  async function loadProjectFiles() {
+    setProjectLoading(true);
+    try {
+      const res = await fetch('/api/project/files');
+      const data = await res.json();
+      if (res.ok) {
+        setProjectFiles(data.files || []);
+        setStructureMarkdown(data.structureMarkdown || '');
       }
+    } catch {
+      // This panel is optional for v0 and should not block query flow.
+    } finally {
+      setProjectLoading(false);
     }
+  }
 
+  useEffect(() => {
     loadProjectFiles();
   }, []);
 
@@ -63,6 +63,8 @@ export default function StudioPage() {
       }
 
       setResult(data);
+      // Refresh project snapshot so new change-log entries are visible quickly.
+      await loadProjectFiles();
     } catch (err) {
       setError(err.message || 'Something went wrong');
     } finally {
@@ -188,6 +190,13 @@ export default function StudioPage() {
           </section>
 
           <section style={{ marginTop: 18, border: '1px solid #d5deef', borderRadius: 12, background: '#fff', padding: 16 }}>
+            <h2 style={{ marginTop: 0 }}>Project structure used by AI</h2>
+            <pre style={{ whiteSpace: 'pre-wrap', background: '#f6f8ff', padding: 12, borderRadius: 8 }}>
+              {result.structureContextUsed || 'No structure context included.'}
+            </pre>
+          </section>
+
+          <section style={{ marginTop: 18, border: '1px solid #d5deef', borderRadius: 12, background: '#fff', padding: 16 }}>
             <h2 style={{ marginTop: 0 }}>What happened (Task Trace)</h2>
             <pre style={{ whiteSpace: 'pre-wrap', background: '#f6f8ff', padding: 12, borderRadius: 8 }}>
               {JSON.stringify(result.taskTrace || [], null, 2)}
@@ -227,6 +236,21 @@ export default function StudioPage() {
                 {(result.historySummaries || []).map((item, index) => (
                   <li key={`${item.when}-${index}`} style={{ marginBottom: 6 }}>
                     <strong>{item.when}</strong> — {item.summary}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+
+          <section style={{ marginTop: 18, border: '1px solid #d5deef', borderRadius: 12, background: '#fff', padding: 16 }}>
+            <h2 style={{ marginTop: 0 }}>Change logs used ({result.summaryMode})</h2>
+            {(result.changeLogsUsed || []).length === 0 ? (
+              <p style={{ margin: 0 }}>No change logs yet.</p>
+            ) : (
+              <ul style={{ margin: 0, paddingLeft: 18 }}>
+                {(result.changeLogsUsed || []).map((item, index) => (
+                  <li key={`${item.when}-change-${index}`} style={{ marginBottom: 6 }}>
+                    <strong>{item.when}</strong> — {item.changeLog}
                   </li>
                 ))}
               </ul>

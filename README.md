@@ -46,7 +46,7 @@ A lightweight **Next.js 14 App Router** skeleton for an "AI Brain" that manages 
 
 1. Accepts user query (`query`) and optional `provider`/`model`
 2. Selects relevant nodes from JSON memory
-3. Builds prompt using node tags (`brain_summary`, `brain_read`, `brain_write`, dependencies)
+3. Builds prompt using node tags (`brain_summary`, `brain_read`, `brain_write`, dependencies), project structure (`data/structure.md`), and history summaries/change logs (`last5` or `all`)
 4. Calls `/api/ai-call`
 5. Updates selected nodes (`brain_write`, `brain_history`)
 6. Returns AI response + selected nodes + generated prompt
@@ -57,7 +57,7 @@ A lightweight **Next.js 14 App Router** skeleton for an "AI Brain" that manages 
 - Provider/model fields
 - Summary scope selector (`last5` or `all`)
 - Send button
-- Displays project snapshot (structure + file list), AI response, prompt preview, task trace, context manifest, selected project file snippets, history summaries, and selected nodes
+- Displays project snapshot (structure + file list), AI response, prompt preview, task trace, context manifest, selected project file snippets, history summaries, change logs, and selected nodes
 
 This is intentionally lightweight for v0 testing, but now includes trace/debug panels for planning, selected project files, context manifest, and summary scope.
 

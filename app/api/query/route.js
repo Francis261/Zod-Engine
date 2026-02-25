@@ -8,7 +8,12 @@ import {
   selectRelevantNodes,
   writeNodes
 } from '@/lib/nodeStore';
-import { readProjectFiles, selectRelevantProjectFiles } from '@/lib/projectStore';
+import {
+  readProjectFiles,
+  readStructureMarkdown,
+  selectRelevantProjectFiles,
+  writeProjectFiles
+} from '@/lib/projectStore';
 
 /**
  * v0 brain orchestration route.
@@ -49,12 +54,19 @@ export async function POST(request) {
 
     // 3) Pull project-level context so Studio can show "what was considered".
     const projectState = await readProjectFiles();
+    const structureMarkdown = await readStructureMarkdown();
     const history = projectState.history || [];
     const historySlice = summaryMode === 'all' ? history : history.slice(-5);
 
+    // Keep summaries and change logs as separate arrays for clarity/traceability.
     const historySummaries = historySlice.map((item) => ({
       when: item.when || 'unknown',
-      summary: item.aiBrainSummary || item.changeLog || item.query || 'No summary'
+      summary: item.aiBrainSummary || item.query || 'No summary'
+    }));
+
+    const changeLogsUsed = historySlice.map((item) => ({
+      when: item.when || 'unknown',
+      changeLog: item.changeLog || 'No change log recorded'
     }));
 
     const projectFileSelection = selectRelevantProjectFiles(projectState.files || {}, query, {
@@ -64,9 +76,16 @@ export async function POST(request) {
     });
 
     // 4) Build prompt used for external AI call.
+    // IMPORTANT: include structure markdown + change log/summaries so AI sees them.
     const prompt = buildPrompt(query, contextNodes, {
       maxContextChars: 7000,
-      recentHistory: historySummaries.map((item) => `${item.when} | ${item.summary}`),
+      structureMarkdown,
+      recentHistory: historySlice.map((item) => {
+        const when = item.when || 'unknown';
+        const summary = item.aiBrainSummary || item.query || 'No summary';
+        const changeLog = item.changeLog || 'No change log';
+        return `${when} | summary=${summary} | change_log=${changeLog}`;
+      }),
       projectFileContext: projectFileSelection.files.map((file) => ({
         path: file.path,
         snippet: file.snippet
@@ -80,8 +99,9 @@ export async function POST(request) {
           selectedNodeIds: contextNodes.map((node) => node.id),
           selectedNodeCount: contextNodes.length,
           summaryMode,
-          historyUsedCount: historySummaries.length,
-          projectFilesSelected: projectFileSelection.manifest.selectedPaths
+          historyUsedCount: historySlice.length,
+          projectFilesSelected: projectFileSelection.manifest.selectedPaths,
+          usedStructureMarkdownChars: String(structureMarkdown || '').length
         }
       },
       {
@@ -131,10 +151,26 @@ export async function POST(request) {
 
     await writeNodes(updatedNodes);
 
+    // 7) Persist query-level change log into project history so summaryMode is meaningful over time.
+    const historyEntry = {
+      when: new Date().toISOString(),
+      query,
+      provider: aiPayload.provider || provider,
+      model: aiPayload.model || model || null,
+      aiBrainSummary: aiOutput.slice(0, 160),
+      changeLog: `Handled query: ${query.slice(0, 120)}`
+    };
+
+    await writeProjectFiles({
+      ...projectState,
+      history: [...history, historyEntry].slice(-80)
+    });
+
     taskTrace.push({
       step: 'node_writeback',
       output: {
-        updatedNodeCount: contextNodes.length
+        updatedNodeCount: contextNodes.length,
+        appendedChangeLog: historyEntry.changeLog
       }
     });
 
@@ -151,12 +187,16 @@ export async function POST(request) {
       taskTrace,
       selectedNodes: selectedUpdated,
       historySummaries,
+      changeLogsUsed,
+      structureContextUsed: String(structureMarkdown || '').slice(0, 1600),
       projectFileContext: projectFileSelection.files,
       contextManifest: {
         planner: {
           selectedNodeCount: contextNodes.length,
           summaryMode,
-          historyUsedCount: historySummaries.length
+          historyUsedCount: historySlice.length,
+          changeLogsUsedCount: changeLogsUsed.length,
+          usedStructureMarkdownChars: String(structureMarkdown || '').length
         },
         projectFiles: projectFileSelection.manifest,
         promptChars: prompt.length
