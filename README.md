@@ -1,25 +1,44 @@
 # AI Brain Studio (Next.js v0)
 
-A lightweight Next.js 14 App Router project that implements an **AI Brain** as a structured **memory + logic proxy**.
+A lightweight Next.js 14 App Router project implementing an **AI Brain** for large codebases on limited-context models (Gemini free-tier style usage).
 
-The brain does **not** send the whole codebase to the AI provider. It stores codebase knowledge as node memory, retrieves only relevant context, then proxies compact prompts to external AI.
+## What this brain now does
 
-## Features
+- Keeps **brain memory tags** in `data/nodes.json`.
+- Keeps **project files** in `data/projectFiles.json` and live `data/structure.md`.
+- Uses retrieval + dependency expansion + prompt budgeting so only small, relevant context is sent to AI.
+- Supports **user-side tags/operations** (`read`, `write`, `rename`, `delete`, `copy`, `move`, `think`) via Studio inputs.
+- Parses AI tagged actions and applies file operations in brain memory.
 
-- Next.js 14 App Router scaffold.
-- API routes:
-  - `POST /api/query` - orchestrates retrieval, prompt building, AI proxy call, and memory write-back.
-  - `POST /api/ai-call` - external AI proxy endpoint (stub + optional Gemini call), supports model override.
-  - `GET /api/ai-call?provider=gemini&listModels=1` - lists available Gemini generateContent models.
-  - `GET /api/node/list` - list all nodes.
-  - `GET /api/node/fetch?id=<nodeId>` - fetch one node.
-  - `POST /api/node/update` - partial node updates.
-- JSON memory store at `data/nodes.json`.
-- Interactive Studio UI at `/studio`.
-- Dynamic placeholder node creation for new/empty projects.
-- Dependency-aware context expansion + code chunking to stay under prompt budgets.
+## API routes
 
-## Quick start
+- `POST /api/query`
+  - Accepts: `query`, `provider`, `model`, `userTags[]`
+  - Retrieves relevant nodes + project context
+  - Builds bounded prompt using `brain_summary`, `brain_read`, `brain_write`
+  - Calls `/api/ai-call`
+  - Parses AI/user operation tags and updates project memory
+  - Updates node tags (`brain_write`, `brain_history`)
+  - Returns AI response + operations + project files + updated structure
+- `POST /api/ai-call` - calls stub/Gemini proxy.
+- `GET /api/ai-call?provider=gemini&listModels=1` - lists available Gemini models.
+- `GET /api/node/list`, `GET /api/node/fetch`, `POST /api/node/update` - brain node memory endpoints.
+- `GET /api/project/files` - returns generated files + `structure.md` + history.
+
+## Studio (`/studio`)
+
+- Query textarea + send button
+- Provider and Gemini model selector
+- User-side tag presets and custom tag-command input
+- Shows:
+  - Orchestration stats
+  - Applied operations
+  - `structure.md`
+  - Generated project files
+  - AI response
+  - Selected brain nodes
+
+## Run locally
 
 ```bash
 npm install
@@ -29,56 +48,15 @@ npm run dev
 
 Open `http://localhost:3000/studio`.
 
-## Environment
+## Env
 
-Create `.env.local` from `.env.example`:
-
-- `GEMINI_API_KEY` - optional API key for Gemini proxy mode.
-- `GEMINI_MODEL` - optional backend default model (default: `gemini-2.5-flash`).
-- `NEXT_PUBLIC_DEFAULT_GEMINI_MODEL` - default Studio model value.
-- `NEXT_PUBLIC_DEFAULT_AI_PROVIDER` - `stub` or `gemini`.
-
-## Brain orchestration flow
-
-1. User sends query to `/api/query`.
-2. Brain loads nodes from memory.
-3. If project memory is empty or no context matches, brain creates placeholder node(s) from intent.
-4. Brain selects relevant nodes and expands with dependencies.
-5. Brain chunks code snippets and builds a bounded prompt (context budget).
-6. Brain calls `/api/ai-call` (which then calls stub or Gemini with selected model).
-7. Brain updates selected nodes (`brain_write`, `brain_history`) and persists memory.
-8. Response + orchestration metadata is returned to Studio.
-
-## Node schema
-
-Each node follows this shape:
-
-```json
-{
-  "id": "string",
-  "type": "function|class|module|variable|test",
-  "name": "string",
-  "code_snippet": "string",
-  "tags": {
-    "brain_summary": "string",
-    "brain_behavior": "string",
-    "brain_constraints": "string",
-    "brain_examples": ["string"],
-    "brain_usage": ["string"],
-    "brain_dependencies": ["string"],
-    "brain_callers": ["string"],
-    "brain_called": ["string"],
-    "brain_history": ["string"],
-    "brain_read": ["string"],
-    "brain_write": ["string"],
-    "brain_priority": "string",
-    "brain_context": "string"
-  }
-}
-```
+- `GEMINI_API_KEY=`
+- `GEMINI_MODEL=gemini-2.5-flash`
+- `NEXT_PUBLIC_DEFAULT_AI_PROVIDER=stub`
+- `NEXT_PUBLIC_DEFAULT_GEMINI_MODEL=gemini-2.5-flash`
 
 ## Notes
 
-- Core brain logic is provider-agnostic.
-- External AI logic is isolated in the proxy runtime (`lib/brainRuntime.js`).
-- JSON persistence is v0-friendly and can be swapped with a DB later.
+- This is intentionally v0 and JSON-backed for easy iteration.
+- External provider logic remains isolated in `lib/brainRuntime.js`.
+- Retrieval is lexical-weighted today and structured so embedding/vector retrieval can replace it later.

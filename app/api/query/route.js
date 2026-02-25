@@ -8,6 +8,16 @@ import {
   buildPrompt,
   applyBrainWriteback
 } from '@/lib/nodeStore';
+import {
+  readProjectFiles,
+  writeProjectFiles,
+  readStructureMarkdown,
+  writeStructureMarkdown,
+  generateStructureMarkdown,
+  applyOperations,
+  getTopFilesForContext
+} from '@/lib/projectStore';
+import { parseTaggedOperations, parseUserTagCommands } from '@/lib/operationTags';
 
 async function callAIViaProxyRoute(request, prompt, provider, model) {
   const proto = request.headers.get('x-forwarded-proto') || 'http';
@@ -21,32 +31,25 @@ async function callAIViaProxyRoute(request, prompt, provider, model) {
   });
 
   const payload = await response.json();
-  if (!response.ok) {
-    throw new Error(payload.error || 'AI proxy call failed');
-  }
-
+  if (!response.ok) throw new Error(payload.error || 'AI proxy call failed');
   return payload;
 }
 
 export async function POST(request) {
   try {
-    const { query, provider, model } = await request.json();
+    const { query, provider, model, userTags = [] } = await request.json();
 
     if (!query || typeof query !== 'string') {
       return NextResponse.json({ error: 'query must be a non-empty string' }, { status: 400 });
     }
 
     let nodes = await readNodes();
-
-    // New-project bootstrap: if memory is empty, seed one placeholder node from query intent.
     if (!nodes.length) {
       nodes = [inferNodeFromQuery(query)];
       await writeNodes(nodes);
     }
 
     let selectedNodes = selectRelevantNodes(nodes, query);
-
-    // If query does not match existing nodes strongly, create a placeholder node on-the-fly.
     if (!selectedNodes.length) {
       const placeholder = inferNodeFromQuery(query);
       nodes = [...nodes, placeholder];
@@ -54,15 +57,44 @@ export async function POST(request) {
       await writeNodes(nodes);
     }
 
-    // Add dependency-aware context while keeping prompt bounded.
-    const contextNodes = expandWithDependencies(nodes, selectedNodes, 6);
+    const contextNodes = expandWithDependencies(nodes, selectedNodes, 10);
+
+    const projectState = await readProjectFiles();
+    const structureMarkdown = await readStructureMarkdown();
+    const fileContext = getTopFilesForContext(projectState.files, 8, 2600);
+    const recentHistory = (projectState.history || []).slice(-6).map((h) => `${h.when}: ${h.query}`);
+
     const prompt = buildPrompt(query, contextNodes, {
-      maxContextChars: 6000,
-      chunkSize: 700
+      maxContextChars: 7600,
+      chunkSize: 700,
+      userTags,
+      structureMarkdown,
+      recentHistory,
+      projectFileContext: fileContext
     });
 
-    // Query route calls the AI proxy route (not provider SDK directly).
     const ai = await callAIViaProxyRoute(request, prompt, provider, model);
+
+    const userOps = parseUserTagCommands(userTags);
+    const aiOps = parseTaggedOperations(ai.output);
+    const mergedOps = [...userOps, ...aiOps];
+
+    const { files: updatedFiles, applied } = applyOperations(projectState.files, mergedOps);
+    const updatedStructure = generateStructureMarkdown(updatedFiles);
+
+    const newHistoryEntry = {
+      when: new Date().toISOString(),
+      query,
+      provider: ai.provider || provider || 'stub',
+      model: ai.model || model || null,
+      operations: applied
+    };
+
+    await writeProjectFiles({
+      files: updatedFiles,
+      history: [...(projectState.history || []), newHistoryEntry].slice(-50)
+    });
+    await writeStructureMarkdown(updatedStructure);
 
     const updatedNodes = applyBrainWriteback(
       nodes,
@@ -70,22 +102,27 @@ export async function POST(request) {
       query,
       ai.output
     );
-
     await writeNodes(updatedNodes);
 
-    // Return updated view for selected/context nodes.
     const byId = new Map(updatedNodes.map((node) => [node.id, node]));
     const selectedUpdated = contextNodes.map((node) => byId.get(node.id) || node);
 
     return NextResponse.json({
       response: ai.output,
+      operations: applied,
+      structureMarkdown: updatedStructure,
+      projectFiles: Object.entries(updatedFiles).map(([path, content]) => ({
+        path,
+        contentPreview: String(content).slice(0, 600)
+      })),
       orchestration: {
         totalNodesInMemory: updatedNodes.length,
         selectedNodeCount: selectedUpdated.length,
         promptSizeChars: prompt.length,
         usedChunking: selectedUpdated.some((node) => (node.code_snippet || '').length > 700),
         provider: ai.provider || provider || 'stub',
-        model: ai.model || model || null
+        model: ai.model || model || null,
+        operationCount: applied.length
       },
       selectedNodes: selectedUpdated.map((node) => ({
         id: node.id,
