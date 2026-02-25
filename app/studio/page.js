@@ -9,13 +9,15 @@ export default function StudioPage() {
   const defaultProvider = process.env.NEXT_PUBLIC_DEFAULT_AI_PROVIDER || 'stub';
   const defaultGeminiModel = process.env.NEXT_PUBLIC_DEFAULT_GEMINI_MODEL || 'gemini-2.5-flash';
 
-  const [query, setQuery] = useState('Build a landing page hero section for my website builder project.');
+  const [query, setQuery] = useState('Update login page UX and preserve existing behavior.');
   const [provider, setProvider] = useState(defaultProvider);
   const [model, setModel] = useState(defaultGeminiModel);
   const [availableModels, setAvailableModels] = useState(GEMINI_FALLBACK_MODELS);
   const [modelsLoading, setModelsLoading] = useState(false);
-  const [selectedTags, setSelectedTags] = useState(['write', 'think']);
-  const [customTagCommands, setCustomTagCommands] = useState('write:src/app/page.tsx');
+
+  const [summaryMode, setSummaryMode] = useState('last5');
+  const [selectedTags, setSelectedTags] = useState(['read', 'write', 'think']);
+  const [customTagCommands, setCustomTagCommands] = useState('read:src/app/login/page.tsx');
 
   const [response, setResponse] = useState('');
   const [selectedNodes, setSelectedNodes] = useState([]);
@@ -24,9 +26,11 @@ export default function StudioPage() {
   const [projectFiles, setProjectFiles] = useState([]);
   const [structureMarkdown, setStructureMarkdown] = useState('');
   const [contextManifest, setContextManifest] = useState(null);
+  const [taskTrace, setTaskTrace] = useState([]);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
   const canSend = useMemo(() => Boolean(query.trim()), [query]);
 
   useEffect(() => {
@@ -43,7 +47,7 @@ export default function StudioPage() {
           }
         }
       } catch {
-        // Keep fallback models for local/stub mode.
+        // Keep fallback list.
       } finally {
         setModelsLoading(false);
       }
@@ -60,10 +64,9 @@ export default function StudioPage() {
         if (res.ok) {
           setProjectFiles(data.files || []);
           setStructureMarkdown(data.structureMarkdown || '');
-      setContextManifest(data.contextManifest || null);
         }
       } catch {
-        // Silent optional load.
+        // optional
       }
     }
 
@@ -80,6 +83,7 @@ export default function StudioPage() {
       .split('\n')
       .map((line) => line.trim())
       .filter(Boolean);
+
     return [...presetCommands, ...customCommands];
   }
 
@@ -95,7 +99,8 @@ export default function StudioPage() {
           query,
           provider,
           model: provider === 'gemini' ? model : undefined,
-          userTags: buildUserTagCommands()
+          userTags: buildUserTagCommands(),
+          summaryMode
         })
       });
 
@@ -109,6 +114,7 @@ export default function StudioPage() {
       setProjectFiles(data.projectFiles || []);
       setStructureMarkdown(data.structureMarkdown || '');
       setContextManifest(data.contextManifest || null);
+      setTaskTrace(data.taskTrace || []);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -118,9 +124,9 @@ export default function StudioPage() {
 
   return (
     <main style={{ maxWidth: 1100, margin: '0 auto', padding: '24px 16px 48px' }}>
-      <h1 style={{ marginBottom: 4 }}>AI Brain Studio (v0)</h1>
+      <h1 style={{ marginBottom: 4 }}>AI Brain Studio (Task Loop v0)</h1>
       <p style={{ marginTop: 0, color: '#4f5b76' }}>
-        User Prompt → Brain → AI → Brain → file operations. Built for large codebases with selective context + tags.
+        User prompt -&gt; Brain planner -&gt; AI read request -&gt; Brain file payload -&gt; AI apply changes.
       </p>
 
       <section style={{ background: '#fff', border: '1px solid #dce3f0', borderRadius: 12, padding: 16 }}>
@@ -156,6 +162,19 @@ export default function StudioPage() {
             </select>
           </>
         )}
+
+        <label htmlFor="summaryMode" style={{ display: 'block', fontWeight: 600, marginBottom: 8 }}>
+          Summary History Mode
+        </label>
+        <select
+          id="summaryMode"
+          value={summaryMode}
+          onChange={(e) => setSummaryMode(e.target.value)}
+          style={{ marginBottom: 12, borderRadius: 8, border: '1px solid #c7d2e8', padding: 8 }}
+        >
+          <option value="last5">last5 summaries</option>
+          <option value="all">all summaries</option>
+        </select>
 
         <p style={{ marginBottom: 8, fontWeight: 600 }}>User-side Tags</p>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
@@ -225,10 +244,9 @@ export default function StudioPage() {
           <ul style={{ margin: 0 }}>
             <li>Total nodes in memory: {orchestration.totalNodesInMemory}</li>
             <li>Selected nodes: {orchestration.selectedNodeCount}</li>
-            <li>Prompt chars: {orchestration.promptSizeChars}</li>
-            <li>Chunking used: {String(orchestration.usedChunking)}</li>
             <li>Provider: {orchestration.provider || 'n/a'}</li>
             <li>Model: {orchestration.model || 'n/a'}</li>
+            <li>AI turns this task: {orchestration.aiTurns || 1}</li>
             <li>Operations applied: {orchestration.operationCount || 0}</li>
           </ul>
         )}
@@ -239,13 +257,13 @@ export default function StudioPage() {
         {!contextManifest ? (
           <p style={{ margin: 0 }}>No run yet.</p>
         ) : (
-          <>
-            <p style={{ marginTop: 0 }}>
-              The brain sends only a small subset of files, not the full codebase.
-            </p>
-            <pre style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{JSON.stringify(contextManifest, null, 2)}</pre>
-          </>
+          <pre style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{JSON.stringify(contextManifest, null, 2)}</pre>
         )}
+      </section>
+
+      <section style={{ marginTop: 18, background: '#fff', border: '1px solid #dce3f0', borderRadius: 12, padding: 16 }}>
+        <h2 style={{ marginTop: 0 }}>Task Trace</h2>
+        {!taskTrace.length ? <p style={{ margin: 0 }}>No task trace yet.</p> : <pre style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{JSON.stringify(taskTrace, null, 2)}</pre>}
       </section>
 
       <section style={{ marginTop: 18, background: '#fff', border: '1px solid #dce3f0', borderRadius: 12, padding: 16 }}>
@@ -270,7 +288,7 @@ export default function StudioPage() {
       </section>
 
       <section style={{ marginTop: 18, background: '#fff', border: '1px solid #dce3f0', borderRadius: 12, padding: 16 }}>
-        <h2 style={{ marginTop: 0 }}>AI Response</h2>
+        <h2 style={{ marginTop: 0 }}>AI/User Summary</h2>
         <pre style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{response || 'No response yet.'}</pre>
       </section>
 
@@ -283,9 +301,6 @@ export default function StudioPage() {
               {node.name} <small style={{ color: '#6e7a97' }}>({node.type})</small>
             </h3>
             <p style={{ margin: '6px 0' }}>{node.summary}</p>
-            <p style={{ margin: '6px 0' }}>
-              <strong>brain_dependencies:</strong> {(node.brain_dependencies || []).join(', ') || 'none'}
-            </p>
           </article>
         ))}
       </section>
