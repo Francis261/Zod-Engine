@@ -6,5 +6,6 @@ export const SceneKeys = Object.freeze({
   CREDITS: 'CREDITS',
   GAME: 'GAME',
   HUD: 'HUD',
-  PAUSE: 'PAUSE'
+  PAUSE: 'PAUSE',
+  BUILDER: 'BUILDER'
 });

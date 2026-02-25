@@ -2,6 +2,13 @@ import Phaser from 'phaser';
 import { SceneKeys } from '../core/SceneKeys.js';
 import { EventBus } from '../core/EventBus.js';
 import { gameState } from '../core/GameState.js';
+import { settingsService } from '../services/SettingsService.js';
+
+const difficultyConfig = {
+  easy: { spawnDelay: 1500, damageDelay: 4000, damageAmount: 4 },
+  normal: { spawnDelay: 1200, damageDelay: 3000, damageAmount: 5 },
+  hard: { spawnDelay: 900, damageDelay: 2200, damageAmount: 7 }
+};
 
 export class GameScene extends Phaser.Scene {
   constructor() {
@@ -10,6 +17,8 @@ export class GameScene extends Phaser.Scene {
 
   create() {
     const { width, height } = this.scale;
+    const settings = settingsService.load();
+    const diff = difficultyConfig[settings.difficulty] ?? difficultyConfig.normal;
 
     this.add.rectangle(width / 2, height / 2, width, height, 0x010409);
 
@@ -17,7 +26,7 @@ export class GameScene extends Phaser.Scene {
     this.collectibles = this.physics.add.group();
 
     this.spawnTimer = this.time.addEvent({
-      delay: 1200,
+      delay: diff.spawnDelay,
       callback: this.spawnCollectible,
       callbackScope: this,
       loop: true
@@ -31,14 +40,20 @@ export class GameScene extends Phaser.Scene {
     this.cursors = this.input.keyboard.createCursorKeys();
     this.pauseKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.ESC);
 
-    // Demonstrates periodic damage to prove HUD reactivity.
     this.damageTimer = this.time.addEvent({
-      delay: 3000,
+      delay: diff.damageDelay,
       callback: () => {
-        if (!gameState.isPaused) gameState.damage(5);
+        if (!gameState.isPaused) gameState.damage(diff.damageAmount);
       },
       loop: true
     });
+
+    this.debugText = this.add.text(20, this.scale.height - 30, '', {
+      fontFamily: 'Inter, Arial, sans-serif',
+      fontSize: '14px',
+      color: '#8b949e'
+    });
+    this.debugText.setVisible(Boolean(settings.showDebug));
 
     EventBus.emit('game:started');
 
@@ -61,6 +76,10 @@ export class GameScene extends Phaser.Scene {
       this.scene.launch(SceneKeys.PAUSE);
       this.scene.pause();
       gameState.setPaused(true);
+    }
+
+    if (this.debugText.visible) {
+      this.debugText.setText(`Objects: ${this.children.length} | Collectibles: ${this.collectibles.countActive(true)}`);
     }
 
     if (gameState.health <= 0) {

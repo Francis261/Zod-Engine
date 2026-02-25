@@ -8,6 +8,7 @@ import { CreditsScene } from '../scenes/CreditsScene.js';
 import { GameScene } from '../scenes/GameScene.js';
 import { HUDScene } from '../scenes/HUDScene.js';
 import { PauseScene } from '../scenes/PauseScene.js';
+import { BuilderScene } from '../scenes/BuilderScene.js';
 
 export const gameConfig = {
   type: Phaser.AUTO,
@@ -31,6 +32,7 @@ export const gameConfig = {
     MainMenuScene,
     OptionsScene,
     CreditsScene,
+    BuilderScene,
     GameScene,
     HUDScene,
     PauseScene
