@@ -183,9 +183,13 @@ export default function StudioPage() {
           </section>
 
           <section style={{ marginTop: 18, border: '1px solid #d5deef', borderRadius: 12, background: '#fff', padding: 16 }}>
-            <h2 style={{ marginTop: 0 }}>Prompt preview</h2>
+            <h2 style={{ marginTop: 0 }}>Execution summary</h2>
             <pre style={{ whiteSpace: 'pre-wrap', background: '#f6f8ff', padding: 12, borderRadius: 8 }}>
-              {String(result.prompt || '').slice(0, 2500)}
+              {JSON.stringify({
+                summaryMode: result.summaryMode,
+                totalExecutionSteps: result.contextManifest?.planner?.totalExecutionSteps,
+                totalAppliedOperations: (result.appliedOperations || []).length
+              }, null, 2)}
             </pre>
           </section>
 
@@ -208,6 +212,18 @@ export default function StudioPage() {
             <pre style={{ whiteSpace: 'pre-wrap', background: '#f6f8ff', padding: 12, borderRadius: 8 }}>
               {JSON.stringify(result.contextManifest || {}, null, 2)}
             </pre>
+          </section>
+
+
+          <section style={{ marginTop: 18, border: '1px solid #d5deef', borderRadius: 12, background: '#fff', padding: 16 }}>
+            <h2 style={{ marginTop: 0 }}>Applied Operations</h2>
+            {(result.appliedOperations || []).length === 0 ? (
+              <p style={{ margin: 0 }}>No file operations were applied.</p>
+            ) : (
+              <pre style={{ whiteSpace: 'pre-wrap', background: '#f6f8ff', padding: 12, borderRadius: 8 }}>
+                {JSON.stringify(result.appliedOperations || [], null, 2)}
+              </pre>
+            )}
           </section>
 
           <section style={{ marginTop: 18, border: '1px solid #d5deef', borderRadius: 12, background: '#fff', padding: 16 }}>

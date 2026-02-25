@@ -9,17 +9,65 @@ import {
   writeNodes
 } from '@/lib/nodeStore';
 import {
+  applyOperations,
+  generateStructureMarkdown,
   readProjectFiles,
   readStructureMarkdown,
-  selectRelevantProjectFiles,
-  writeProjectFiles
+  writeProjectFiles,
+  writeStructureMarkdown
 } from '@/lib/projectStore';
+import { parseTaggedOperations } from '@/lib/operationTags';
+
+const TOOL_RULES = [
+  'You are an autonomous website-builder AI working through an internal brain orchestrator.',
+  'Do NOT assume full source code is available. Work from structure, summaries, change logs, and tool tags only.',
+  'When you need to make changes, emit tool tags and include complete content for writes.',
+  'Available tool tags:',
+  '[WRITE path="..."]...[/WRITE]',
+  '[DELETE path="..."]',
+  '[RENAME from="..." to="..."]',
+  '[MOVE from="..." to="..."]',
+  '[COPY from="..." to="..."]',
+  '[THINK]internal planning note[/THINK]',
+  'If task is complete, include line: DONE: true'
+].join('\n');
+
+function historyLine(item) {
+  const when = item.when || 'unknown';
+  const summary = item.aiBrainSummary || item.query || 'No summary';
+  const changeLog = item.changeLog || 'No change log';
+  return `${when} | summary=${summary} | change_log=${changeLog}`;
+}
+
+function buildIterationPrompt({ query, contextNodes, structureMarkdown, historySlice, previousSteps }) {
+  const stepNotes = previousSteps
+    .map((step, index) => `Step ${index + 1}: ops=${step.appliedOps.length}, preview=${step.output.slice(0, 220)}`)
+    .join('\n');
+
+  return buildPrompt(query, contextNodes, {
+    maxContextChars: 9000,
+    structureMarkdown,
+    recentHistory: historySlice.map(historyLine),
+    projectFileContext: [
+      {
+        path: 'brain_rules.md',
+        snippet: TOOL_RULES
+      },
+      {
+        path: 'brain_previous_steps.md',
+        snippet: stepNotes || 'No previous execution steps yet.'
+      }
+    ]
+  });
+}
 
 /**
  * v0 brain orchestration route.
  *
- * Goal: keep provider logic outside the brain while exposing enough
- * debugging/trace context to the Studio UI so users can see what happened.
+ * Multi-step execution model:
+ * - Always provides AI with structure, summaries, change logs, and tool rules.
+ * - Applies tagged file operations iteratively.
+ * - Regenerates and persists project structure after each operation batch.
  */
 export async function POST(request) {
   try {
@@ -41,7 +89,7 @@ export async function POST(request) {
       await writeNodes(nodes);
     }
 
-    // 2) Select relevant nodes and expand dependencies.
+    // 2) Node retrieval based on query intent.
     let selectedNodes = selectRelevantNodes(nodes, query);
     if (!selectedNodes.length) {
       const inferred = inferNodeFromQuery(query);
@@ -49,16 +97,15 @@ export async function POST(request) {
       selectedNodes = [inferred];
       await writeNodes(nodes);
     }
+    const contextNodes = expandWithDependencies(nodes, selectedNodes, 8);
 
-    const contextNodes = expandWithDependencies(nodes, selectedNodes, 6);
-
-    // 3) Pull project-level context so Studio can show "what was considered".
+    // 3) Brain context sources (structure + summaries + change logs).
     const projectState = await readProjectFiles();
-    const structureMarkdown = await readStructureMarkdown();
+    let filesMap = { ...(projectState.files || {}) };
+    let structureMarkdown = await readStructureMarkdown();
     const history = projectState.history || [];
     const historySlice = summaryMode === 'all' ? history : history.slice(-5);
 
-    // Keep summaries and change logs as separate arrays for clarity/traceability.
     const historySummaries = historySlice.map((item) => ({
       when: item.when || 'unknown',
       summary: item.aiBrainSummary || item.query || 'No summary'
@@ -69,137 +116,122 @@ export async function POST(request) {
       changeLog: item.changeLog || 'No change log recorded'
     }));
 
-    const projectFileSelection = selectRelevantProjectFiles(projectState.files || {}, query, {
-      maxFiles: 5,
-      maxChars: 2400,
-      maxPerFile: 900
-    });
+    // 4) Multi-step autonomous execution loop.
+    const taskTrace = [];
+    const appliedOperations = [];
+    const stepOutputs = [];
 
-    // 4) Build prompt used for external AI call.
-    // IMPORTANT: include structure markdown + change log/summaries so AI sees them.
-    const prompt = buildPrompt(query, contextNodes, {
-      maxContextChars: 7000,
-      structureMarkdown,
-      recentHistory: historySlice.map((item) => {
-        const when = item.when || 'unknown';
-        const summary = item.aiBrainSummary || item.query || 'No summary';
-        const changeLog = item.changeLog || 'No change log';
-        return `${when} | summary=${summary} | change_log=${changeLog}`;
-      }),
-      projectFileContext: projectFileSelection.files.map((file) => ({
-        path: file.path,
-        snippet: file.snippet
-      }))
-    });
+    const maxSteps = 4;
 
-    const taskTrace = [
-      {
-        step: 'plan',
-        output: {
-          selectedNodeIds: contextNodes.map((node) => node.id),
-          selectedNodeCount: contextNodes.length,
-          summaryMode,
-          historyUsedCount: historySlice.length,
-          projectFilesSelected: projectFileSelection.manifest.selectedPaths,
-          usedStructureMarkdownChars: String(structureMarkdown || '').length
-        }
-      },
-      {
-        step: 'prompt_build',
+    for (let step = 1; step <= maxSteps; step += 1) {
+      const prompt = buildIterationPrompt({
+        query,
+        contextNodes,
+        structureMarkdown,
+        historySlice,
+        previousSteps: stepOutputs
+      });
+
+      const proto = request.headers.get('x-forwarded-proto') || 'http';
+      const host = request.headers.get('host') || 'localhost:3000';
+      const aiUrl = `${proto}://${host}/api/ai-call`;
+
+      const aiRes = await fetch(aiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt, provider, model })
+      });
+
+      const aiPayload = await aiRes.json();
+      if (!aiRes.ok) {
+        return NextResponse.json({ error: aiPayload.error || 'Failed to get AI response' }, { status: aiRes.status });
+      }
+
+      const output = aiPayload.output || 'No output returned from AI proxy.';
+      const parsedOps = parseTaggedOperations(output);
+      const { files: nextFiles, applied } = applyOperations(filesMap, parsedOps);
+
+      // ALWAYS refresh project structure after any step so AI has latest file map.
+      filesMap = nextFiles;
+      structureMarkdown = generateStructureMarkdown(filesMap);
+      await writeStructureMarkdown(structureMarkdown);
+
+      appliedOperations.push(...applied.map((item) => ({ ...item, step })));
+
+      taskTrace.push({
+        step: `ai_step_${step}`,
         output: {
           promptChars: prompt.length,
-          provider,
-          model: model || null
+          outputPreview: output.slice(0, 280),
+          parsedOperationCount: parsedOps.length,
+          appliedOperationCount: applied.length,
+          structureCharsAfterStep: structureMarkdown.length
         }
+      });
+
+      stepOutputs.push({
+        output,
+        appliedOps: applied
+      });
+
+      const done = /DONE:\s*true/i.test(output);
+      if (done || parsedOps.length === 0) {
+        break;
       }
-    ];
-
-    // 5) Proxy the prompt through /api/ai-call.
-    const proto = request.headers.get('x-forwarded-proto') || 'http';
-    const host = request.headers.get('host') || 'localhost:3000';
-    const aiUrl = `${proto}://${host}/api/ai-call`;
-
-    const aiRes = await fetch(aiUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt, provider, model })
-    });
-
-    const aiPayload = await aiRes.json();
-    if (!aiRes.ok) {
-      return NextResponse.json({ error: aiPayload.error || 'Failed to get AI response' }, { status: aiRes.status });
     }
 
-    const aiOutput = aiPayload.output || 'No output returned from AI proxy.';
+    // Persist project files/history after loop.
+    const finalOutput = stepOutputs.at(-1)?.output || 'No AI output returned.';
+    const historyEntry = {
+      when: new Date().toISOString(),
+      query,
+      provider,
+      model: model || null,
+      aiBrainSummary: finalOutput.slice(0, 180),
+      changeLog: `Completed task loop with ${appliedOperations.length} operation(s).`
+    };
 
-    taskTrace.push({
-      step: 'ai_call',
-      output: {
-        provider: aiPayload.provider || provider,
-        model: aiPayload.model || model || null,
-        outputPreview: aiOutput.slice(0, 300)
-      }
+    await writeProjectFiles({
+      files: filesMap,
+      history: [...history, historyEntry].slice(-120)
     });
 
-    // 6) Persist writeback on selected nodes.
     const updatedNodes = applyBrainWriteback(
       nodes,
       contextNodes.map((node) => node.id),
       query,
-      aiOutput
+      finalOutput
     );
-
     await writeNodes(updatedNodes);
 
-    // 7) Persist query-level change log into project history so summaryMode is meaningful over time.
-    const historyEntry = {
-      when: new Date().toISOString(),
-      query,
-      provider: aiPayload.provider || provider,
-      model: aiPayload.model || model || null,
-      aiBrainSummary: aiOutput.slice(0, 160),
-      changeLog: `Handled query: ${query.slice(0, 120)}`
-    };
-
-    await writeProjectFiles({
-      ...projectState,
-      history: [...history, historyEntry].slice(-80)
-    });
-
-    taskTrace.push({
-      step: 'node_writeback',
-      output: {
-        updatedNodeCount: contextNodes.length,
-        appendedChangeLog: historyEntry.changeLog
-      }
-    });
-
-    const updatedById = new Map(updatedNodes.map((node) => [node.id, node]));
-    const selectedUpdated = contextNodes.map((node) => updatedById.get(node.id) || node);
+    const byId = new Map(updatedNodes.map((node) => [node.id, node]));
+    const selectedUpdated = contextNodes.map((node) => byId.get(node.id) || node);
 
     return NextResponse.json({
       query,
-      provider: aiPayload.provider || provider,
-      model: aiPayload.model || model || null,
+      provider,
+      model: model || null,
       summaryMode,
-      prompt,
-      response: aiOutput,
+      response: finalOutput,
+      appliedOperations,
       taskTrace,
       selectedNodes: selectedUpdated,
       historySummaries,
       changeLogsUsed,
-      structureContextUsed: String(structureMarkdown || '').slice(0, 1600),
-      projectFileContext: projectFileSelection.files,
+      structureContextUsed: String(structureMarkdown || '').slice(0, 2000),
       contextManifest: {
         planner: {
           selectedNodeCount: contextNodes.length,
           summaryMode,
           historyUsedCount: historySlice.length,
           changeLogsUsedCount: changeLogsUsed.length,
-          usedStructureMarkdownChars: String(structureMarkdown || '').length
+          structureChars: structureMarkdown.length,
+          totalExecutionSteps: stepOutputs.length
         },
-        projectFiles: projectFileSelection.manifest,
-        promptChars: prompt.length
+        projectFiles: {
+          totalProjectFiles: Object.keys(filesMap).length
+        },
+        rulesIncluded: true
       }
     });
   } catch (error) {
