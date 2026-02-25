@@ -1,19 +1,38 @@
 import { NextResponse } from 'next/server';
 import { readNodes } from '@/lib/nodeStore';
 
+/**
+ * Fetch one node (id/name) or a summarized node list.
+ * Useful for inspecting dependencies and tags from Studio or scripts.
+ */
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
   const id = searchParams.get('id');
-
-  if (!id) {
-    return NextResponse.json({ error: 'id query param is required' }, { status: 400 });
-  }
+  const name = searchParams.get('name');
 
   const nodes = await readNodes();
-  const node = nodes.find((item) => item.id === id);
+
+  if (!id && !name) {
+    return NextResponse.json({
+      nodes: nodes.map((node) => ({
+        id: node.id,
+        type: node.type,
+        name: node.name,
+        brain_summary: node.tags?.brain_summary,
+        brain_dependencies: node.tags?.brain_dependencies || []
+      }))
+    });
+  }
+
+  const lookup = id
+    ? (node) => node.id === id
+    : (node) => node.name.toLowerCase() === String(name).toLowerCase();
+
+  const node = nodes.find(lookup);
 
   if (!node) {
-    return NextResponse.json({ error: `Node ${id} not found` }, { status: 404 });
+    const key = id ? `id=${id}` : `name=${name}`;
+    return NextResponse.json({ error: `Node not found for ${key}` }, { status: 404 });
   }
 
   return NextResponse.json({ node });
