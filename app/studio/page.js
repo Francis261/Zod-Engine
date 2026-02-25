@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 export default function StudioPage() {
   const [query, setQuery] = useState('How does /api/query select and update nodes?');
@@ -12,7 +12,32 @@ export default function StudioPage() {
   const [error, setError] = useState('');
   const [result, setResult] = useState(null);
 
+  // Project-wide view for transparency before sending any query.
+  const [projectFiles, setProjectFiles] = useState([]);
+  const [structureMarkdown, setStructureMarkdown] = useState('');
+  const [projectLoading, setProjectLoading] = useState(false);
+
   const canSend = useMemo(() => Boolean(query.trim()), [query]);
+
+  useEffect(() => {
+    async function loadProjectFiles() {
+      setProjectLoading(true);
+      try {
+        const res = await fetch('/api/project/files');
+        const data = await res.json();
+        if (res.ok) {
+          setProjectFiles(data.files || []);
+          setStructureMarkdown(data.structureMarkdown || '');
+        }
+      } catch {
+        // This panel is optional for v0 and should not block query flow.
+      } finally {
+        setProjectLoading(false);
+      }
+    }
+
+    loadProjectFiles();
+  }, []);
 
   async function handleSend() {
     if (!query.trim()) return;
@@ -127,6 +152,21 @@ export default function StudioPage() {
         </button>
       </section>
 
+      <section style={{ marginTop: 18, border: '1px solid #d5deef', borderRadius: 12, background: '#fff', padding: 16 }}>
+        <h2 style={{ marginTop: 0 }}>Project snapshot ({projectFiles.length} files)</h2>
+        {projectLoading ? <p style={{ margin: 0 }}>Loading project files...</p> : null}
+        <pre style={{ whiteSpace: 'pre-wrap', background: '#f6f8ff', padding: 12, borderRadius: 8 }}>
+          {structureMarkdown || 'No structure markdown available.'}
+        </pre>
+        {projectFiles.length > 0 ? (
+          <ul style={{ margin: 0, paddingLeft: 18 }}>
+            {projectFiles.map((file) => (
+              <li key={file.path}>{file.path}</li>
+            ))}
+          </ul>
+        ) : null}
+      </section>
+
       {error && (
         <p style={{ color: '#b12525', marginTop: 12 }}>
           <strong>Error:</strong> {error}
@@ -138,6 +178,13 @@ export default function StudioPage() {
           <section style={{ marginTop: 18, border: '1px solid #d5deef', borderRadius: 12, background: '#fff', padding: 16 }}>
             <h2 style={{ marginTop: 0 }}>AI Response</h2>
             <pre style={{ whiteSpace: 'pre-wrap', background: '#f6f8ff', padding: 12, borderRadius: 8 }}>{result.response}</pre>
+          </section>
+
+          <section style={{ marginTop: 18, border: '1px solid #d5deef', borderRadius: 12, background: '#fff', padding: 16 }}>
+            <h2 style={{ marginTop: 0 }}>Prompt preview</h2>
+            <pre style={{ whiteSpace: 'pre-wrap', background: '#f6f8ff', padding: 12, borderRadius: 8 }}>
+              {String(result.prompt || '').slice(0, 2500)}
+            </pre>
           </section>
 
           <section style={{ marginTop: 18, border: '1px solid #d5deef', borderRadius: 12, background: '#fff', padding: 16 }}>

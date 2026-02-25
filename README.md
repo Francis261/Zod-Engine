@@ -57,7 +57,7 @@ A lightweight **Next.js 14 App Router** skeleton for an "AI Brain" that manages 
 - Provider/model fields
 - Summary scope selector (`last5` or `all`)
 - Send button
-- Displays AI response, task trace, context manifest, selected project file snippets, history summaries, and selected nodes
+- Displays project snapshot (structure + file list), AI response, prompt preview, task trace, context manifest, selected project file snippets, history summaries, and selected nodes
 
 This is intentionally lightweight for v0 testing, but now includes trace/debug panels for planning, selected project files, context manifest, and summary scope.
 
